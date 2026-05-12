@@ -1,5 +1,4 @@
 import requests
-import json
 import os
 from datetime import datetime, timedelta, timezone
 
@@ -9,7 +8,6 @@ CLIENT_SECRET = os.environ.get("STRAVA_CLIENT_SECRET", "aaef164ff706dcb60a6bef98
 REFRESH_TOKEN = os.environ.get("STRAVA_REFRESH_TOKEN", "3dc6f44323fef2cb7d4a0dbfbb4ea7ca56e0030d")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
-
 
 def refresh_access_token():
     resp = requests.post("https://www.strava.com/oauth/token", data={
@@ -21,8 +19,8 @@ def refresh_access_token():
     data = resp.json()
     return data["access_token"], data["refresh_token"]
 
-
-def get_activities(token, weeks=8):
+def get_activities(token, weeks=52):
+    # Берём за год, чтобы видеть все данные для рекордов и понедельной статистики
     after = int((datetime.now(timezone.utc) - timedelta(weeks=weeks)).timestamp())
     headers = {"Authorization": f"Bearer {token}"}
     activities = []
@@ -38,13 +36,13 @@ def get_activities(token, weeks=8):
             break
         activities.extend(batch)
         page += 1
+    # Явная сортировка от новых к старым
+    activities.sort(key=lambda a: a.get("start_date", ""), reverse=True)
     return activities
-
 
 def get_athlete(token):
     headers = {"Authorization": f"Bearer {token}"}
     return requests.get("https://www.strava.com/api/v3/athlete", headers=headers).json()
-
 
 def format_pace(speed_ms):
     if not speed_ms or speed_ms == 0:
@@ -52,103 +50,182 @@ def format_pace(speed_ms):
     pace_sec = 1000 / speed_ms
     mins = int(pace_sec // 60)
     secs = int(pace_sec % 60)
-    return f"{mins}:{secs:02d} /km"
-
+    return f"{mins}:{secs:02d} /км"
 
 def format_duration(seconds):
     h = int(seconds // 3600)
     m = int((seconds % 3600) // 60)
     if h > 0:
-        return f"{h}h {m:02d}m"
-    return f"{m}m"
+        return f"{h}ч {m:02d}м"
+    return f"{m}м"
 
+def get_week_start(dt):
+    # Начало недели — понедельник
+    return dt - timedelta(days=dt.weekday())
 
-def analyze_and_build_message(activities, athlete):
+def build_message(activities, athlete):
     runs = [a for a in activities if a.get("type") == "Run"]
-    name = athlete.get("firstname", "")
-    now = datetime.now()
-    weekday_ru = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"][now.weekday()]
+
+    now = datetime.now(timezone.utc).astimezone()
+    weekdays_ru = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+    weekday_ru = weekdays_ru[now.weekday()]
     date_str = now.strftime(f"{weekday_ru}, %d.%m.%Y")
 
     if not runs:
-        return f"🏃 *Strava Daily Report*\n{date_str}\n\nНет пробежек за последние 8 недель."
+        return f"🏃 *Strava Report · {date_str}*\n\nНет пробежек за последний год."
 
-    week_start = datetime.now(timezone.utc) - timedelta(days=now.weekday())
-    week_runs = [r for r in runs if datetime.fromisoformat(r["start_date"].replace("Z", "+00:00")) >= week_start]
-    week_dist = sum(r["distance"] for r in week_runs) / 1000
-    week_time = sum(r["moving_time"] for r in week_runs)
-
-    last_week_start = week_start - timedelta(weeks=1)
-    last_week_runs = [r for r in runs if last_week_start <= datetime.fromisoformat(r["start_date"].replace("Z", "+00:00")) < week_start]
-    last_week_dist = sum(r["distance"] for r in last_week_runs) / 1000
-
+    # Последняя пробежка
     last_run = runs[0]
     last_dist = last_run["distance"] / 1000
     last_pace = format_pace(last_run.get("average_speed", 0))
     last_hr = last_run.get("average_heartrate")
+    last_duration = format_duration(last_run.get("moving_time", 0))
     last_date = datetime.fromisoformat(last_run["start_date_local"].replace("Z", "")).strftime("%d.%m")
 
-    monthly_dist = sum(r["distance"] for r in runs) / 1000
-    avg_weekly = monthly_dist / 8
-
-    recent_runs = [r for r in runs if r.get("average_speed", 0) > 0][:5]
-    if len(recent_runs) >= 2:
-        paces = [1000 / r["average_speed"] for r in recent_runs]
-        pace_trend = "📈 темп улучшается" if paces[0] < paces[-1] else "📉 темп снижается"
-    else:
-        pace_trend = ""
-
-    if last_week_dist > 0:
-        change = ((week_dist - last_week_dist) / last_week_dist) * 100
-        change_str = f"+{change:.0f}%" if change >= 0 else f"{change:.0f}%"
-    else:
-        change_str = "первая неделя"
-
-    lines = [
-        f"🏃 *Strava Daily · {date_str}*",
-        "",
-        f"👟 *Последняя пробежка* ({last_date})",
-        f"  {last_dist:.2f} км · {last_pace}" + (f" · ❤️ {last_hr:.0f} bpm" if last_hr else ""),
-        "",
-        f"📅 *Эта неделя:* {week_dist:.1f} км ({len(week_runs)} пробеж.)",
-        f"  vs прошлая неделя: {change_str} ({last_week_dist:.1f} км)",
-        "",
-        f"📊 *Средний объём:* {avg_weekly:.1f} км/нед (8 нед.)",
+    # Эта неделя (Пн–сегодня)
+    week_start = get_week_start(now.replace(hour=0, minute=0, second=0, microsecond=0))
+    week_start_utc = week_start.astimezone(timezone.utc)
+    week_runs = [
+        r for r in runs
+        if datetime.fromisoformat(r["start_date"].replace("Z", "+00:00")) >= week_start_utc
     ]
-    if pace_trend:
-        lines.append(f"  {pace_trend} (последние {len(recent_runs)} пробеж.)")
-    lines += ["", "💪 *Продолжай в том же духе!*"]
+    week_dist = sum(r["distance"] for r in week_runs) / 1000
+    week_time = sum(r["moving_time"] for r in week_runs)
+    week_speeds = [r["average_speed"] for r in week_runs if r.get("average_speed", 0) > 0]
+    week_avg_pace = format_pace(sum(week_speeds) / len(week_speeds)) if week_speeds else "N/A"
+    week_hrs = [r["average_heartrate"] for r in week_runs if r.get("average_heartrate")]
+    week_avg_hr = f"{sum(week_hrs)/len(week_hrs):.0f} bpm" if week_hrs else "N/A"
+
+    # Нагрузка недели
+    if week_hrs and week_dist > 0:
+        avg_hr_val = sum(week_hrs) / len(week_hrs)
+        load_str = f"{week_dist * avg_hr_val / 100:.1f} у.е."
+    else:
+        load_str = "нет данных"
+
+    # Понедельная динамика текущего месяца
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    month_start_utc = month_start.astimezone(timezone.utc)
+    month_runs = [
+        r for r in runs
+        if datetime.fromisoformat(r["start_date"].replace("Z", "+00:00")) >= month_start_utc
+    ]
+    month_name_ru = {
+        1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
+        5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
+        9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь"
+    }[now.month]
+
+    # Разбиваем по неделям внутри месяца
+    weekly_stats = {}
+    for r in month_runs:
+        r_date = datetime.fromisoformat(r["start_date"].replace("Z", "+00:00")).astimezone()
+        r_week_start = get_week_start(r_date.replace(hour=0, minute=0, second=0, microsecond=0))
+        key = r_week_start.strftime("%d.%m")
+        if key not in weekly_stats:
+            weekly_stats[key] = {"dist": 0, "speeds": [], "hrs": [], "count": 0, "week_start": r_week_start}
+        weekly_stats[key]["dist"] += r["distance"] / 1000
+        weekly_stats[key]["count"] += 1
+        if r.get("average_speed", 0) > 0:
+            weekly_stats[key]["speeds"].append(r["average_speed"])
+        if r.get("average_heartrate"):
+            weekly_stats[key]["hrs"].append(r["average_heartrate"])
+
+    sorted_weeks = sorted(weekly_stats.items(), key=lambda x: x[1]["week_start"])
+
+    month_lines = []
+    for i, (week_key, ws) in enumerate(sorted_weeks, 1):
+        w_pace = format_pace(sum(ws["speeds"]) / len(ws["speeds"])) if ws["speeds"] else "N/A"
+        w_hr = f"{sum(ws['hrs'])/len(ws['hrs']):.0f} bpm" if ws["hrs"] else "N/A"
+        week_end = ws["week_start"] + timedelta(days=6)
+        period = f"{ws['week_start'].strftime('%d.%m')}–{week_end.strftime('%d.%m')}"
+        month_lines.append(
+            f"  Нед {i} ({period}): {ws['dist']:.1f} км · {ws['count']} пробеж. · {w_pace} · ❤️ {w_hr}"
+        )
+
+    # Личные рекорды за всё время
+    pr_1k = None
+    pr_5k = None
+    pr_10k = None
+
+    for r in runs:
+        for effort in r.get("best_efforts", []):
+            dist_name = effort.get("name", "")
+            elapsed = effort.get("elapsed_time", 0)
+            if elapsed <= 0:
+                continue
+            if dist_name == "1K":
+                speed = 1000 / elapsed
+                if pr_1k is None or speed > pr_1k["speed"]:
+                    pr_1k = {"speed": speed, "time": elapsed, "date": r["start_date_local"][:10]}
+            elif dist_name == "5K":
+                speed = 5000 / elapsed
+                if pr_5k is None or speed > pr_5k["speed"]:
+                    pr_5k = {"speed": speed, "time": elapsed, "date": r["start_date_local"][:10]}
+            elif dist_name == "10K":
+                speed = 10000 / elapsed
+                if pr_10k is None or speed > pr_10k["speed"]:
+                    pr_10k = {"speed": speed, "time": elapsed, "date": r["start_date_local"][:10]}
+
+    def fmt_time(sec):
+        m = int(sec // 60)
+        s = int(sec % 60)
+        if sec >= 3600:
+            h = int(sec // 3600)
+            m2 = int((sec % 3600) // 60)
+            return f"{h}:{m2:02d}:{int(sec%60):02d}"
+        return f"{m}:{s:02d}"
+
+    pr_1k_str = f"{fmt_time(pr_1k['time'])} (от {pr_1k['date']})" if pr_1k else "нет данных"
+    pr_5k_str = f"{fmt_time(pr_5k['time'])} (от {pr_5k['date']})" if pr_5k else "нет данных"
+    pr_10k_str = f"{fmt_time(pr_10k['time'])} (от {pr_10k['date']})" if pr_10k else "нет данных"
+
+    # Собираем сообщение
+    lines = [
+        f"🏃‍♀️ *Strava Report · {date_str}*",
+        "",
+        f"👟 *Последняя пробежка* — {last_date}",
+        f"  📏 {last_dist:.2f} км  ⏱ {last_duration}  🐾 {last_pace}" +
+        (f"  ❤️ {last_hr:.0f} bpm" if last_hr else ""),
+        "",
+        f"📅 *Эта неделя* (с {week_start.strftime('%d.%m')})",
+        f"  Пробежек: {len(week_runs)}  |  {week_dist:.1f} км  |  {format_duration(week_time)}",
+        f"  Средний темп: {week_avg_pace}  |  Средний пульс: {week_avg_hr}",
+        f"  Нагрузка: {load_str}",
+        "",
+        f"📆 *{month_name_ru} — по неделям*",
+    ]
+    if month_lines:
+        lines.extend(month_lines)
+    else:
+        lines.append("  Пробежек в этом месяце пока нет.")
+
+    lines += [
+        "",
+        "🏆 *Личные рекорды (за всё время)*",
+        f"  1 км:  {pr_1k_str}",
+        f"  5 км:  {pr_5k_str}",
+        f"  10 км: {pr_10k_str}",
+    ]
 
     return "\n".join(lines)
 
-
 def send_telegram(message):
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        print("Telegram not configured, printing message:")
-        print(message)
-        return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    resp = requests.post(url, json={
+    requests.post(url, json={
         "chat_id": TELEGRAM_CHAT_ID,
         "text": message,
         "parse_mode": "Markdown"
     })
-    print(f"Telegram: {resp.status_code}")
-
 
 def main():
-    print(f"=== Strava Bot · {datetime.now().isoformat()} ===")
     access_token, _ = refresh_access_token()
+    activities = get_activities(access_token, weeks=52)
     athlete = get_athlete(access_token)
-    print(f"Athlete: {athlete.get('firstname')} {athlete.get('lastname')}")
-    activities = get_activities(access_token, weeks=8)
-    runs = [a for a in activities if a.get("type") == "Run"]
-    print(f"Activities: {len(activities)}, runs: {len(runs)}")
-    message = analyze_and_build_message(activities, athlete)
-    print("Message preview:\n" + message)
+    message = build_message(activities, athlete)
     send_telegram(message)
-    print("Done!")
-
+    print("Message sent.")
+    print(message)
 
 if __name__ == "__main__":
     main()
