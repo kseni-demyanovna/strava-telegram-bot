@@ -143,42 +143,38 @@ def build_message(activities, athlete):
             f"  Нед {i} ({period}): {ws['dist']:.1f} км · {ws['count']} пробеж. · {w_pace} · ❤️ {w_hr}"
         )
 
-    # Личные рекорды за всё время
-    pr_1k = None
-    pr_5k = None
-    pr_10k = None
-
-    for r in runs:
-        for effort in r.get("best_efforts", []):
-            dist_name = effort.get("name", "")
-            elapsed = effort.get("elapsed_time", 0)
-            if elapsed <= 0:
+    # Личные рекорды за всё время — по средней скорости на дистанции ±20%
+    def pr_for_distance(target_m, tolerance=0.20):
+        best = None
+        for r in runs:
+            dist = r.get("distance", 0)
+            speed = r.get("average_speed", 0)
+            if speed <= 0 or dist <= 0:
                 continue
-            if dist_name == "1K":
-                speed = 1000 / elapsed
-                if pr_1k is None or speed > pr_1k["speed"]:
-                    pr_1k = {"speed": speed, "time": elapsed, "date": r["start_date_local"][:10]}
-            elif dist_name == "5K":
-                speed = 5000 / elapsed
-                if pr_5k is None or speed > pr_5k["speed"]:
-                    pr_5k = {"speed": speed, "time": elapsed, "date": r["start_date_local"][:10]}
-            elif dist_name == "10K":
-                speed = 10000 / elapsed
-                if pr_10k is None or speed > pr_10k["speed"]:
-                    pr_10k = {"speed": speed, "time": elapsed, "date": r["start_date_local"][:10]}
+            lo = target_m * (1 - tolerance)
+            hi = target_m * (1 + tolerance)
+            if lo <= dist <= hi:
+                if best is None or speed > best["speed"]:
+                    best = {
+                        "speed": speed,
+                        "dist": dist,
+                        "date": r["start_date_local"][:10]
+                    }
+        return best
 
-    def fmt_time(sec):
-        m = int(sec // 60)
-        s = int(sec % 60)
-        if sec >= 3600:
-            h = int(sec // 3600)
-            m2 = int((sec % 3600) // 60)
-            return f"{h}:{m2:02d}:{int(sec%60):02d}"
-        return f"{m}:{s:02d}"
+    pr_1k  = pr_for_distance(1000)
+    pr_5k  = pr_for_distance(5000)
+    pr_10k = pr_for_distance(10000)
 
-    pr_1k_str = f"{fmt_time(pr_1k['time'])} (от {pr_1k['date']})" if pr_1k else "нет данных"
-    pr_5k_str = f"{fmt_time(pr_5k['time'])} (от {pr_5k['date']})" if pr_5k else "нет данных"
-    pr_10k_str = f"{fmt_time(pr_10k['time'])} (от {pr_10k['date']})" if pr_10k else "нет данных"
+    def pr_str(pr, label_dist):
+        if not pr:
+            return "нет данных"
+        pace = format_pace(pr["speed"])
+        return f"{pace} ({pr['dist']/1000:.2f} км, {pr['date']})"
+
+    pr_1k_str  = pr_str(pr_1k,  "1 км")
+    pr_5k_str  = pr_str(pr_5k,  "5 км")
+    pr_10k_str = pr_str(pr_10k, "10 км")
 
     # Собираем сообщение
     lines = [
