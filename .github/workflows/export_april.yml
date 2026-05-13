@@ -18,71 +18,73 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
-      - name: Export April runs
+      - name: Write export script
+        run: |
+          cat > /tmp/export.py << 'PYEOF'
+          import requests, os
+          from datetime import datetime, timezone
+
+          CLIENT_ID = os.environ["STRAVA_CLIENT_ID"]
+          CLIENT_SECRET = os.environ["STRAVA_CLIENT_SECRET"]
+          REFRESH_TOKEN = os.environ["STRAVA_REFRESH_TOKEN"]
+
+          resp = requests.post("https://www.strava.com/oauth/token", data={
+              "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET,
+              "refresh_token": REFRESH_TOKEN, "grant_type": "refresh_token"
+          })
+          token = resp.json()["access_token"]
+
+          apr_start = int(datetime(2026, 4, 1, tzinfo=timezone.utc).timestamp())
+          apr_end   = int(datetime(2026, 4, 30, 23, 59, 59, tzinfo=timezone.utc).timestamp())
+
+          headers = {"Authorization": f"Bearer {token}"}
+          activities = []
+          page = 1
+          while True:
+              batch = requests.get("https://www.strava.com/api/v3/athlete/activities",
+                  headers=headers,
+                  params={"per_page": 100, "page": page, "after": apr_start, "before": apr_end}
+              ).json()
+              if not batch:
+                  break
+              activities.extend(batch)
+              page += 1
+
+          runs = [a for a in activities if a.get("type") == "Run"]
+          runs.sort(key=lambda a: a["start_date"])
+
+          days_ru = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"]
+
+          print("=" * 85)
+          print(f"{'Дата':<12} {'День':<5} {'Дист':<9} {'Темп':<10} {'Пульс':<7} {'Время':<8} {'Название'}")
+          print("-" * 85)
+
+          for r in runs:
+              dt = datetime.fromisoformat(r["start_date_local"].replace("Z",""))
+              date_str = dt.strftime("%d.%m.%Y")
+              day_str  = days_ru[dt.weekday()]
+              dist     = r["distance"] / 1000
+              speed    = r.get("average_speed", 0)
+              hr       = r.get("average_heartrate")
+              moving   = r.get("moving_time", 0)
+              h = moving // 3600; m = (moving % 3600) // 60; s = moving % 60
+              time_str = f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+              if speed > 0:
+                  ps = int((1000/speed) // 60); pp = int((1000/speed) % 60)
+                  pace_str = f"{ps}:{pp:02d}"
+              else:
+                  pace_str = "—"
+              hr_str = f"{hr:.0f}" if hr else "—"
+              name = r.get("name","")[:35]
+              print(f"{date_str:<12} {day_str:<5} {dist:.2f} км  {pace_str:<10} {hr_str:<7} {time_str:<8} {name}")
+
+          print("=" * 85)
+          print(f"Итого: {len(runs)} пробежек, {sum(r['distance'] for r in runs)/1000:.2f} км")
+          PYEOF
+
+      - name: Run export script
         env:
           STRAVA_CLIENT_ID: ${{ secrets.STRAVA_CLIENT_ID }}
           STRAVA_CLIENT_SECRET: ${{ secrets.STRAVA_CLIENT_SECRET }}
           STRAVA_REFRESH_TOKEN: ${{ secrets.STRAVA_REFRESH_TOKEN }}
-        run: |
-          python3 - <<'EOF'
-import requests, os
-from datetime import datetime, timezone
-
-CLIENT_ID = os.environ["STRAVA_CLIENT_ID"]
-CLIENT_SECRET = os.environ["STRAVA_CLIENT_SECRET"]
-REFRESH_TOKEN = os.environ["STRAVA_REFRESH_TOKEN"]
-
-resp = requests.post("https://www.strava.com/oauth/token", data={
-    "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET,
-    "refresh_token": REFRESH_TOKEN, "grant_type": "refresh_token"
-})
-token = resp.json()["access_token"]
-
-apr_start = int(datetime(2026, 4, 1, tzinfo=timezone.utc).timestamp())
-apr_end   = int(datetime(2026, 4, 30, 23, 59, 59, tzinfo=timezone.utc).timestamp())
-
-headers = {"Authorization": f"Bearer {token}"}
-activities = []
-page = 1
-while True:
-    batch = requests.get("https://www.strava.com/api/v3/athlete/activities",
-        headers=headers,
-        params={"per_page": 100, "page": page, "after": apr_start, "before": apr_end}
-    ).json()
-    if not batch: break
-    activities.extend(batch)
-    page += 1
-
-runs = [a for a in activities if a.get("type") == "Run"]
-runs.sort(key=lambda a: a["start_date"])
-
-days_ru = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"]
-
-print("=" * 90)
-print(f"{'Дата':<12} {'День':<5} {'Название':<30} {'Дист':<9} {'Темп':<10} {'Пульс':<7} {'Время':<8}")
-print("-" * 90)
-
-for r in runs:
-    dt = datetime.fromisoformat(r["start_date_local"].replace("Z",""))
-    date_str  = dt.strftime("%d.%m.%Y")
-    day_str   = days_ru[dt.weekday()]
-    name      = r.get("name","")[:28]
-    dist      = r["distance"] / 1000
-    speed     = r.get("average_speed", 0)
-    hr        = r.get("average_heartrate")
-    moving    = r.get("moving_time", 0)
-    h = moving // 3600; m = (moving % 3600) // 60; s = moving % 60
-    time_str  = f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
-    if speed > 0:
-        pace_sec = 1000 / speed
-        pm = int(pace_sec // 60); ps = int(pace_sec % 60)
-        pace_str = f"{pm}:{ps:02d}"
-    else:
-        pace_str = "—"
-    hr_str = f"{hr:.0f}" if hr else "—"
-    print(f"{date_str:<12} {day_str:<5} {name:<30} {dist:.2f} км  {pace_str:<10} {hr_str:<7} {time_str:<8}")
-
-print("=" * 90)
-print(f"Итого пробежек: {len(runs)}")
-print(f"Итого км: {sum(r['distance'] for r in runs)/1000:.2f}")
-EOF
+        run: python3 /tmp/export.py
