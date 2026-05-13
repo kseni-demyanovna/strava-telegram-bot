@@ -2,8 +2,9 @@ name: Daily Strava Report
 
 on:
   schedule:
-    # Every day at 18:00 UTC (21:00 Limassol time / UTC+3)
-    - cron: '0 18 * * *'
+    # Every day at 17:00 UTC (20:00 Limassol time / UTC+3)
+    # Using 17:00 UTC to account for GitHub Actions scheduling delay (~up to 1h)
+    - cron: '0 17 * * *'
   workflow_dispatch:
     # Allow manual run from GitHub UI
 
