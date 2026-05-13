@@ -162,9 +162,11 @@ def build_message(activities, athlete):
                     }
         return best
 
-    pr_1k  = pr_for_distance(1000)
     pr_5k  = pr_for_distance(5000)
     pr_10k = pr_for_distance(10000)
+    pr_15k = pr_for_distance(15000)
+    pr_16k = pr_for_distance(16000)
+    pr_21k = pr_for_distance(21097)  # полумарафон
 
     def pr_str(pr, label_dist):
         if not pr:
@@ -172,9 +174,11 @@ def build_message(activities, athlete):
         pace = format_pace(pr["speed"])
         return f"{pace} ({pr['dist']/1000:.2f} км, {pr['date']})"
 
-    pr_1k_str  = pr_str(pr_1k,  "1 км")
     pr_5k_str  = pr_str(pr_5k,  "5 км")
     pr_10k_str = pr_str(pr_10k, "10 км")
+    pr_15k_str = pr_str(pr_15k, "15 км")
+    pr_16k_str = pr_str(pr_16k, "16 км")
+    pr_21k_str = pr_str(pr_21k, "21.1 км")
 
     # Собираем сообщение
     lines = [
@@ -199,9 +203,11 @@ def build_message(activities, athlete):
     lines += [
         "",
         "🏆 *Личные рекорды (за всё время)*",
-        f"  1 км:  {pr_1k_str}",
-        f"  5 км:  {pr_5k_str}",
-        f"  10 км: {pr_10k_str}",
+        f"  5 км:    {pr_5k_str}",
+        f"  10 км:   {pr_10k_str}",
+        f"  15 км:   {pr_15k_str}",
+        f"  16 км:   {pr_16k_str}",
+        f"  21.1 км: {pr_21k_str}",
     ]
 
     return "\n".join(lines)
