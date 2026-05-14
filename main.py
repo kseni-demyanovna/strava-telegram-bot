@@ -103,6 +103,76 @@ def build_message(activities, athlete):
     else:
         load_str = "нет данных"
 
+    # Самая длинная пробежка недели
+    longest_run = max(week_runs, key=lambda r: r["distance"]) if week_runs else None
+    if longest_run:
+        lr_dist = longest_run["distance"] / 1000
+        lr_pace = format_pace(longest_run.get("average_speed", 0))
+        lr_date = datetime.fromisoformat(longest_run["start_date_local"].replace("Z", "")).strftime("%d.%m")
+        longest_str = f"{lr_dist:.2f} км · {lr_pace} ({lr_date})"
+    else:
+        longest_str = "нет данных"
+
+    # Тренд темпа за последние 4 недели
+    pace_trend_parts = []
+    for w in range(3, -1, -1):
+        ws = get_week_start(now.replace(hour=0, minute=0, second=0, microsecond=0)) - timedelta(weeks=w)
+        we = ws + timedelta(days=7)
+        ws_utc = ws.astimezone(timezone.utc)
+        we_utc = we.astimezone(timezone.utc)
+        w_runs = [
+            r for r in runs
+            if ws_utc <= datetime.fromisoformat(r["start_date"].replace("Z", "+00:00")) < we_utc
+        ]
+        w_speeds = [r["average_speed"] for r in w_runs if r.get("average_speed", 0) > 0]
+        if w_speeds:
+            pace_trend_parts.append(format_pace(sum(w_speeds) / len(w_speeds)))
+        else:
+            pace_trend_parts.append("—")
+    # Стрелки между неделями
+    pace_trend_str = ""
+    for i, p in enumerate(pace_trend_parts):
+        if i > 0:
+            # Стрелка: если темп улучшился (цифра меньше) — вверх, хуже — вниз
+            prev = pace_trend_parts[i-1]
+            curr = p
+            if prev != "—" and curr != "—":
+                def pace_to_sec(s):
+                    parts = s.replace(" /км", "").split(":")
+                    return int(parts[0]) * 60 + int(parts[1])
+                arrow = " → " if pace_to_sec(curr) <= pace_to_sec(prev) else " → "
+                pace_trend_str += arrow + curr
+            else:
+                pace_trend_str += " → " + curr
+        else:
+            pace_trend_str = p
+
+    # Пульсовые зоны на основе среднего пульса (приблизительно, без детального запроса)
+    # Зоны по % от макс пульса: Z1 <60%, Z2 60-70%, Z3 70-80%, Z4 80-90%, Z5 >90%
+    # Для бегуньи без данных о макс пульсе используем формулу 220-возраст или дефолт 185
+    MAX_HR = 185  # приблизительно
+    zone_counts = {"Z1+Z2 (лёгкий)": 0, "Z3 (аэробный)": 0, "Z4+Z5 (интенсивный)": 0}
+    zone_total = 0
+    for r in week_runs:
+        hr = r.get("average_heartrate")
+        t = r.get("moving_time", 0)
+        if hr and t:
+            pct = hr / MAX_HR * 100
+            if pct < 70:
+                zone_counts["Z1+Z2 (лёгкий)"] += t
+            elif pct < 80:
+                zone_counts["Z3 (аэробный)"] += t
+            else:
+                zone_counts["Z4+Z5 (интенсивный)"] += t
+            zone_total += t
+    if zone_total > 0:
+        z_easy = zone_counts["Z1+Z2 (лёгкий)"] / zone_total * 100
+        z_aero = zone_counts["Z3 (аэробный)"] / zone_total * 100
+        z_hard = zone_counts["Z4+Z5 (интенсивный)"] / zone_total * 100
+        zones_str = f"лёгкий {z_easy:.0f}% · аэробный {z_aero:.0f}% · интенсивный {z_hard:.0f}%"
+    else:
+        zones_str = "нет данных"
+
     # Понедельная динамика текущего месяца
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     month_start_utc = month_start.astimezone(timezone.utc)
@@ -191,7 +261,9 @@ def build_message(activities, athlete):
         f"📅 *Эта неделя* (с {week_start.strftime('%d.%m')})",
         f"  Пробежек: {len(week_runs)}  |  {week_dist:.1f} км  |  {format_duration(week_time)}",
         f"  Средний темп: {week_avg_pace}  |  Средний пульс: {week_avg_hr}",
+        f"  Длинная: {longest_str}",
         f"  Нагрузка: {load_str}",
+        f"  Пульс. зоны: {zones_str}",
         "",
         f"📆 *{month_name_ru} — по неделям*",
     ]
@@ -201,6 +273,9 @@ def build_message(activities, athlete):
         lines.append("  Пробежек в этом месяце пока нет.")
 
     lines += [
+        "",
+        "📈 *Тренд темпа (последние 4 недели)*",
+        f"  {pace_trend_str}",
         "",
         "🏆 *Личные рекорды (за всё время)*",
         f"  5 км:    {pr_5k_str}",
