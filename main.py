@@ -20,7 +20,7 @@ def refresh_access_token():
     return data["access_token"], data["refresh_token"]
 
 def get_activities(token, weeks=52):
-    # Берём за год, чтобы видеть все данные для рекордов и понедельной статистики
+    # ÐÐµÑÑÐ¼ Ð·Ð° Ð³Ð¾Ð´, ÑÑÐ¾Ð±Ñ Ð²Ð¸Ð´ÐµÑÑ Ð²ÑÐµ Ð´Ð°Ð½Ð½ÑÐµ Ð´Ð»Ñ ÑÐµÐºÐ¾ÑÐ´Ð¾Ð² Ð¸ Ð¿Ð¾Ð½ÐµÐ´ÐµÐ»ÑÐ½Ð¾Ð¹ ÑÑÐ°ÑÐ¸ÑÑÐ¸ÐºÐ¸
     after = int((datetime.now(timezone.utc) - timedelta(weeks=weeks)).timestamp())
     headers = {"Authorization": f"Bearer {token}"}
     activities = []
@@ -36,7 +36,7 @@ def get_activities(token, weeks=52):
             break
         activities.extend(batch)
         page += 1
-    # Явная сортировка от новых к старым
+    # Ð¯Ð²Ð½Ð°Ñ ÑÐ¾ÑÑÐ¸ÑÐ¾Ð²ÐºÐ° Ð¾Ñ Ð½Ð¾Ð²ÑÑ Ðº ÑÑÐ°ÑÑÐ¼
     activities.sort(key=lambda a: a.get("start_date", ""), reverse=True)
     return activities
 
@@ -50,31 +50,31 @@ def format_pace(speed_ms):
     pace_sec = 1000 / speed_ms
     mins = int(pace_sec // 60)
     secs = int(pace_sec % 60)
-    return f"{mins}:{secs:02d} /км"
+    return f"{mins}:{secs:02d} /ÐºÐ¼"
 
 def format_duration(seconds):
     h = int(seconds // 3600)
     m = int((seconds % 3600) // 60)
     if h > 0:
-        return f"{h}ч {m:02d}м"
-    return f"{m}м"
+        return f"{h}Ñ {m:02d}Ð¼"
+    return f"{m}Ð¼"
 
 def get_week_start(dt):
-    # Начало недели — понедельник
+    # ÐÐ°ÑÐ°Ð»Ð¾ Ð½ÐµÐ´ÐµÐ»Ð¸ â Ð¿Ð¾Ð½ÐµÐ´ÐµÐ»ÑÐ½Ð¸Ðº
     return dt - timedelta(days=dt.weekday())
 
 def build_message(activities, athlete):
     runs = [a for a in activities if a.get("type") == "Run"]
 
     now = datetime.now(timezone.utc).astimezone()
-    weekdays_ru = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+    weekdays_ru = ["ÐÐ½", "ÐÑ", "Ð¡Ñ", "Ð§Ñ", "ÐÑ", "Ð¡Ð±", "ÐÑ"]
     weekday_ru = weekdays_ru[now.weekday()]
     date_str = now.strftime(f"{weekday_ru}, %d.%m.%Y")
 
     if not runs:
-        return f"🏃 *Strava Report · {date_str}*\n\nНет пробежек за последний год."
+        return f"ð *Strava Report Â· {date_str}*\n\nÐÐµÑ Ð¿ÑÐ¾Ð±ÐµÐ¶ÐµÐº Ð·Ð° Ð¿Ð¾ÑÐ»ÐµÐ´Ð½Ð¸Ð¹ Ð³Ð¾Ð´."
 
-    # Последняя пробежка
+    # ÐÐ¾ÑÐ»ÐµÐ´Ð½ÑÑ Ð¿ÑÐ¾Ð±ÐµÐ¶ÐºÐ°
     last_run = runs[0]
     last_dist = last_run["distance"] / 1000
     last_pace = format_pace(last_run.get("average_speed", 0))
@@ -82,7 +82,7 @@ def build_message(activities, athlete):
     last_duration = format_duration(last_run.get("moving_time", 0))
     last_date = datetime.fromisoformat(last_run["start_date_local"].replace("Z", "")).strftime("%d.%m")
 
-    # Эта неделя (Пн–сегодня)
+    # Ð­ÑÐ° Ð½ÐµÐ´ÐµÐ»Ñ (ÐÐ½âÑÐµÐ³Ð¾Ð´Ð½Ñ)
     week_start = get_week_start(now.replace(hour=0, minute=0, second=0, microsecond=0))
     week_start_utc = week_start.astimezone(timezone.utc)
     week_runs = [
@@ -96,24 +96,24 @@ def build_message(activities, athlete):
     week_hrs = [r["average_heartrate"] for r in week_runs if r.get("average_heartrate")]
     week_avg_hr = f"{sum(week_hrs)/len(week_hrs):.0f} bpm" if week_hrs else "N/A"
 
-    # Нагрузка недели
+    # ÐÐ°Ð³ÑÑÐ·ÐºÐ° Ð½ÐµÐ´ÐµÐ»Ð¸
     if week_hrs and week_dist > 0:
         avg_hr_val = sum(week_hrs) / len(week_hrs)
-        load_str = f"{week_dist * avg_hr_val / 100:.1f} у.е."
+        load_str = f"{week_dist * avg_hr_val / 100:.1f} Ñ.Ðµ."
     else:
-        load_str = "нет данных"
+        load_str = "Ð½ÐµÑ Ð´Ð°Ð½Ð½ÑÑ"
 
-    # Самая длинная пробежка недели
+    # Ð¡Ð°Ð¼Ð°Ñ Ð´Ð»Ð¸Ð½Ð½Ð°Ñ Ð¿ÑÐ¾Ð±ÐµÐ¶ÐºÐ° Ð½ÐµÐ´ÐµÐ»Ð¸
     longest_run = max(week_runs, key=lambda r: r["distance"]) if week_runs else None
     if longest_run:
         lr_dist = longest_run["distance"] / 1000
         lr_pace = format_pace(longest_run.get("average_speed", 0))
         lr_date = datetime.fromisoformat(longest_run["start_date_local"].replace("Z", "")).strftime("%d.%m")
-        longest_str = f"{lr_dist:.2f} км · {lr_pace} ({lr_date})"
+        longest_str = f"{lr_dist:.2f} ÐºÐ¼ Â· {lr_pace} ({lr_date})"
     else:
-        longest_str = "нет данных"
+        longest_str = "Ð½ÐµÑ Ð´Ð°Ð½Ð½ÑÑ"
 
-    # Тренд темпа за последние 4 недели
+    # Ð¢ÑÐµÐ½Ð´ ÑÐµÐ¼Ð¿Ð° Ð·Ð° Ð¿Ð¾ÑÐ»ÐµÐ´Ð½Ð¸Ðµ 4 Ð½ÐµÐ´ÐµÐ»Ð¸
     pace_trend_parts = []
     for w in range(3, -1, -1):
         ws = get_week_start(now.replace(hour=0, minute=0, second=0, microsecond=0)) - timedelta(weeks=w)
@@ -128,30 +128,30 @@ def build_message(activities, athlete):
         if w_speeds:
             pace_trend_parts.append(format_pace(sum(w_speeds) / len(w_speeds)))
         else:
-            pace_trend_parts.append("—")
-    # Стрелки между неделями
+            pace_trend_parts.append("â")
+    # Ð¡ÑÑÐµÐ»ÐºÐ¸ Ð¼ÐµÐ¶Ð´Ñ Ð½ÐµÐ´ÐµÐ»ÑÐ¼Ð¸
     pace_trend_str = ""
     for i, p in enumerate(pace_trend_parts):
         if i > 0:
-            # Стрелка: если темп улучшился (цифра меньше) — вверх, хуже — вниз
+            # Ð¡ÑÑÐµÐ»ÐºÐ°: ÐµÑÐ»Ð¸ ÑÐµÐ¼Ð¿ ÑÐ»ÑÑÑÐ¸Ð»ÑÑ (ÑÐ¸ÑÑÐ° Ð¼ÐµÐ½ÑÑÐµ) â Ð²Ð²ÐµÑÑ, ÑÑÐ¶Ðµ â Ð²Ð½Ð¸Ð·
             prev = pace_trend_parts[i-1]
             curr = p
-            if prev != "—" and curr != "—":
+            if prev != "â" and curr != "â":
                 def pace_to_sec(s):
-                    parts = s.replace(" /км", "").split(":")
+                    parts = s.replace(" /ÐºÐ¼", "").split(":")
                     return int(parts[0]) * 60 + int(parts[1])
-                arrow = " → " if pace_to_sec(curr) <= pace_to_sec(prev) else " → "
+                arrow = " â " if pace_to_sec(curr) <= pace_to_sec(prev) else " â "
                 pace_trend_str += arrow + curr
             else:
-                pace_trend_str += " → " + curr
+                pace_trend_str += " â " + curr
         else:
             pace_trend_str = p
 
-    # Пульсовые зоны на основе среднего пульса (приблизительно, без детального запроса)
-    # Зоны по % от макс пульса: Z1 <60%, Z2 60-70%, Z3 70-80%, Z4 80-90%, Z5 >90%
-    # Для бегуньи без данных о макс пульсе используем формулу 220-возраст или дефолт 185
-    MAX_HR = 185  # приблизительно
-    zone_counts = {"Z1+Z2 (лёгкий)": 0, "Z3 (аэробный)": 0, "Z4+Z5 (интенсивный)": 0}
+    # ÐÑÐ»ÑÑÐ¾Ð²ÑÐµ Ð·Ð¾Ð½Ñ Ð½Ð° Ð¾ÑÐ½Ð¾Ð²Ðµ ÑÑÐµÐ´Ð½ÐµÐ³Ð¾ Ð¿ÑÐ»ÑÑÐ° (Ð¿ÑÐ¸Ð±Ð»Ð¸Ð·Ð¸ÑÐµÐ»ÑÐ½Ð¾, Ð±ÐµÐ· Ð´ÐµÑÐ°Ð»ÑÐ½Ð¾Ð³Ð¾ Ð·Ð°Ð¿ÑÐ¾ÑÐ°)
+    # ÐÐ¾Ð½Ñ Ð¿Ð¾ % Ð¾Ñ Ð¼Ð°ÐºÑ Ð¿ÑÐ»ÑÑÐ°: Z1 <60%, Z2 60-70%, Z3 70-80%, Z4 80-90%, Z5 >90%
+    # ÐÐ»Ñ Ð±ÐµÐ³ÑÐ½ÑÐ¸ Ð±ÐµÐ· Ð´Ð°Ð½Ð½ÑÑ Ð¾ Ð¼Ð°ÐºÑ Ð¿ÑÐ»ÑÑÐµ Ð¸ÑÐ¿Ð¾Ð»ÑÐ·ÑÐµÐ¼ ÑÐ¾ÑÐ¼ÑÐ»Ñ 220-Ð²Ð¾Ð·ÑÐ°ÑÑ Ð¸Ð»Ð¸ Ð´ÐµÑÐ¾Ð»Ñ 185
+    MAX_HR = 185  # Ð¿ÑÐ¸Ð±Ð»Ð¸Ð·Ð¸ÑÐµÐ»ÑÐ½Ð¾
+    zone_counts = {"Z1+Z2 (Ð»ÑÐ³ÐºÐ¸Ð¹)": 0, "Z3 (Ð°ÑÑÐ¾Ð±Ð½ÑÐ¹)": 0, "Z4+Z5 (Ð¸Ð½ÑÐµÐ½ÑÐ¸Ð²Ð½ÑÐ¹)": 0}
     zone_total = 0
     for r in week_runs:
         hr = r.get("average_heartrate")
@@ -159,21 +159,21 @@ def build_message(activities, athlete):
         if hr and t:
             pct = hr / MAX_HR * 100
             if pct < 70:
-                zone_counts["Z1+Z2 (лёгкий)"] += t
+                zone_counts["Z1+Z2 (Ð»ÑÐ³ÐºÐ¸Ð¹)"] += t
             elif pct < 80:
-                zone_counts["Z3 (аэробный)"] += t
+                zone_counts["Z3 (Ð°ÑÑÐ¾Ð±Ð½ÑÐ¹)"] += t
             else:
-                zone_counts["Z4+Z5 (интенсивный)"] += t
+                zone_counts["Z4+Z5 (Ð¸Ð½ÑÐµÐ½ÑÐ¸Ð²Ð½ÑÐ¹)"] += t
             zone_total += t
     if zone_total > 0:
-        z_easy = zone_counts["Z1+Z2 (лёгкий)"] / zone_total * 100
-        z_aero = zone_counts["Z3 (аэробный)"] / zone_total * 100
-        z_hard = zone_counts["Z4+Z5 (интенсивный)"] / zone_total * 100
-        zones_str = f"лёгкий {z_easy:.0f}% · аэробный {z_aero:.0f}% · интенсивный {z_hard:.0f}%"
+        z_easy = zone_counts["Z1+Z2 (Ð»ÑÐ³ÐºÐ¸Ð¹)"] / zone_total * 100
+        z_aero = zone_counts["Z3 (Ð°ÑÑÐ¾Ð±Ð½ÑÐ¹)"] / zone_total * 100
+        z_hard = zone_counts["Z4+Z5 (Ð¸Ð½ÑÐµÐ½ÑÐ¸Ð²Ð½ÑÐ¹)"] / zone_total * 100
+        zones_str = f"Ð»ÑÐ³ÐºÐ¸Ð¹ {z_easy:.0f}% Â· Ð°ÑÑÐ¾Ð±Ð½ÑÐ¹ {z_aero:.0f}% Â· Ð¸Ð½ÑÐµÐ½ÑÐ¸Ð²Ð½ÑÐ¹ {z_hard:.0f}%"
     else:
-        zones_str = "нет данных"
+        zones_str = "Ð½ÐµÑ Ð´Ð°Ð½Ð½ÑÑ"
 
-    # Понедельная динамика текущего месяца
+    # ÐÐ¾Ð½ÐµÐ´ÐµÐ»ÑÐ½Ð°Ñ Ð´Ð¸Ð½Ð°Ð¼Ð¸ÐºÐ° ÑÐµÐºÑÑÐµÐ³Ð¾ Ð¼ÐµÑÑÑÐ°
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     month_start_utc = month_start.astimezone(timezone.utc)
     month_runs = [
@@ -181,12 +181,12 @@ def build_message(activities, athlete):
         if datetime.fromisoformat(r["start_date"].replace("Z", "+00:00")) >= month_start_utc
     ]
     month_name_ru = {
-        1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
-        5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
-        9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь"
+        1: "Ð¯Ð½Ð²Ð°ÑÑ", 2: "Ð¤ÐµÐ²ÑÐ°Ð»Ñ", 3: "ÐÐ°ÑÑ", 4: "ÐÐ¿ÑÐµÐ»Ñ",
+        5: "ÐÐ°Ð¹", 6: "ÐÑÐ½Ñ", 7: "ÐÑÐ»Ñ", 8: "ÐÐ²Ð³ÑÑÑ",
+        9: "Ð¡ÐµÐ½ÑÑÐ±ÑÑ", 10: "ÐÐºÑÑÐ±ÑÑ", 11: "ÐÐ¾ÑÐ±ÑÑ", 12: "ÐÐµÐºÐ°Ð±ÑÑ"
     }[now.month]
 
-    # Разбиваем по неделям внутри месяца
+    # Ð Ð°Ð·Ð±Ð¸Ð²Ð°ÐµÐ¼ Ð¿Ð¾ Ð½ÐµÐ´ÐµÐ»ÑÐ¼ Ð²Ð½ÑÑÑÐ¸ Ð¼ÐµÑÑÑÐ°
     weekly_stats = {}
     for r in month_runs:
         r_date = datetime.fromisoformat(r["start_date"].replace("Z", "+00:00")).astimezone()
@@ -208,81 +208,101 @@ def build_message(activities, athlete):
         w_pace = format_pace(sum(ws["speeds"]) / len(ws["speeds"])) if ws["speeds"] else "N/A"
         w_hr = f"{sum(ws['hrs'])/len(ws['hrs']):.0f} bpm" if ws["hrs"] else "N/A"
         week_end = ws["week_start"] + timedelta(days=6)
-        period = f"{ws['week_start'].strftime('%d.%m')}–{week_end.strftime('%d.%m')}"
+        period = f"{ws['week_start'].strftime('%d.%m')}â{week_end.strftime('%d.%m')}"
         month_lines.append(
-            f"  Нед {i} ({period}): {ws['dist']:.1f} км · {ws['count']} пробеж. · {w_pace} · ❤️ {w_hr}"
+            f"  ÐÐµÐ´ {i} ({period}): {ws['dist']:.1f} ÐºÐ¼ Â· {ws['count']} Ð¿ÑÐ¾Ð±ÐµÐ¶. Â· {w_pace} Â· â¤ï¸ {w_hr}"
         )
 
-    # Личные рекорды за всё время — по средней скорости на дистанции ±20%
-    def pr_for_distance(target_m, tolerance=0.20):
-        best = None
+    # Лучшие попытки (топ-3) по дистанции ±20%
+    def best_efforts_for_distance(target_m, tolerance=0.20):
+        results = []
+        lo = target_m * (1 - tolerance)
+        hi = target_m * (1 + tolerance)
         for r in runs:
             dist = r.get("distance", 0)
             speed = r.get("average_speed", 0)
-            if speed <= 0 or dist <= 0:
+            moving_time = r.get("moving_time", 0)
+            if speed <= 0 or dist <= 0 or moving_time <= 0:
                 continue
-            lo = target_m * (1 - tolerance)
-            hi = target_m * (1 + tolerance)
             if lo <= dist <= hi:
-                if best is None or speed > best["speed"]:
-                    best = {
-                        "speed": speed,
-                        "dist": dist,
-                        "date": r["start_date_local"][:10]
-                    }
-        return best
+                results.append({
+                    "speed": speed,
+                    "dist": dist,
+                    "moving_time": moving_time,
+                    "date": r["start_date_local"][:10]
+                })
+        results.sort(key=lambda x: x["speed"], reverse=True)
+        return results[:3]
 
-    pr_5k  = pr_for_distance(5000)
-    pr_10k = pr_for_distance(10000)
-    pr_15k = pr_for_distance(15000)
-    pr_16k = pr_for_distance(16000)
-    pr_21k = pr_for_distance(21097)  # полумарафон
+    def format_effort_time(seconds):
+        h = int(seconds // 3600)
+        m = int((seconds % 3600) // 60)
+        s = int(seconds % 60)
+        if h > 0:
+            return f"{h}:{m:02d}:{s:02d}"
+        return f"{m}:{s:02d}"
 
-    def pr_str(pr, label_dist):
-        if not pr:
-            return "нет данных"
-        pace = format_pace(pr["speed"])
-        return f"{pace} ({pr['dist']/1000:.2f} км, {pr['date']})"
+    be_5k  = best_efforts_for_distance(5000)
+    be_10k = best_efforts_for_distance(10000)
+    be_21k = best_efforts_for_distance(21097)
 
-    pr_5k_str  = pr_str(pr_5k,  "5 км")
-    pr_10k_str = pr_str(pr_10k, "10 км")
-    pr_15k_str = pr_str(pr_15k, "15 км")
-    pr_16k_str = pr_str(pr_16k, "16 км")
-    pr_21k_str = pr_str(pr_21k, "21.1 км")
+    medals = ["🥇", "🥈", "🥉"]
 
-    # Собираем сообщение
+    def format_efforts_block(efforts):
+        if not efforts:
+            return ["  нет данных"]
+        result = []
+        for i, e in enumerate(efforts):
+            medal = medals[i] if i < len(medals) else f"{i+1}."
+            t = format_effort_time(e["moving_time"])
+            pace = format_pace(e["speed"])
+            d_km = e["dist"] / 1000
+            d_date = e["date"]
+            result.append(f"  {medal} {t}  {pace}  ({d_km:.2f} км, {d_date})")
+        return result
+
+
+    # Ð¡Ð¾Ð±Ð¸ÑÐ°ÐµÐ¼ ÑÐ¾Ð¾Ð±ÑÐµÐ½Ð¸Ðµ
     lines = [
-        f"🏃‍♀️ *Strava Report · {date_str}*",
+        f"ðââï¸ *Strava Report Â· {date_str}*",
         "",
-        f"👟 *Последняя пробежка* — {last_date}",
-        f"  📏 {last_dist:.2f} км  ⏱ {last_duration}  🐾 {last_pace}" +
-        (f"  ❤️ {last_hr:.0f} bpm" if last_hr else ""),
+        f"ð *ÐÐ¾ÑÐ»ÐµÐ´Ð½ÑÑ Ð¿ÑÐ¾Ð±ÐµÐ¶ÐºÐ°* â {last_date}",
+        f"  ð {last_dist:.2f} ÐºÐ¼  â± {last_duration}  ð¾ {last_pace}" +
+        (f"  â¤ï¸ {last_hr:.0f} bpm" if last_hr else ""),
         "",
-        f"📅 *Эта неделя* (с {week_start.strftime('%d.%m')})",
-        f"  Пробежек: {len(week_runs)}  |  {week_dist:.1f} км  |  {format_duration(week_time)}",
-        f"  Средний темп: {week_avg_pace}  |  Средний пульс: {week_avg_hr}",
-        f"  Длинная: {longest_str}",
-        f"  Нагрузка: {load_str}",
-        f"  Пульс. зоны: {zones_str}",
+        f"ð *Ð­ÑÐ° Ð½ÐµÐ´ÐµÐ»Ñ* (Ñ {week_start.strftime('%d.%m')})",
+        f"  ÐÑÐ¾Ð±ÐµÐ¶ÐµÐº: {len(week_runs)}  |  {week_dist:.1f} ÐºÐ¼  |  {format_duration(week_time)}",
+        f"  Ð¡ÑÐµÐ´Ð½Ð¸Ð¹ ÑÐµÐ¼Ð¿: {week_avg_pace}  |  Ð¡ÑÐµÐ´Ð½Ð¸Ð¹ Ð¿ÑÐ»ÑÑ: {week_avg_hr}",
+        f"  ÐÐ»Ð¸Ð½Ð½Ð°Ñ: {longest_str}",
+        f"  ÐÐ°Ð³ÑÑÐ·ÐºÐ°: {load_str}",
+        f"  ÐÑÐ»ÑÑ. Ð·Ð¾Ð½Ñ: {zones_str}",
         "",
-        f"📆 *{month_name_ru} — по неделям*",
+        f"ð *{month_name_ru} â Ð¿Ð¾ Ð½ÐµÐ´ÐµÐ»ÑÐ¼*",
     ]
     if month_lines:
         lines.extend(month_lines)
     else:
-        lines.append("  Пробежек в этом месяце пока нет.")
+        lines.append("  ÐÑÐ¾Ð±ÐµÐ¶ÐµÐº Ð² ÑÑÐ¾Ð¼ Ð¼ÐµÑÑÑÐµ Ð¿Ð¾ÐºÐ° Ð½ÐµÑ.")
 
     lines += [
         "",
-        "📈 *Тренд темпа (последние 4 недели)*",
+        "ð *Ð¢ÑÐµÐ½Ð´ ÑÐµÐ¼Ð¿Ð° (Ð¿Ð¾ÑÐ»ÐµÐ´Ð½Ð¸Ðµ 4 Ð½ÐµÐ´ÐµÐ»Ð¸)*",
         f"  {pace_trend_str}",
         "",
-        "🏆 *Личные рекорды (за всё время)*",
-        f"  5 км:    {pr_5k_str}",
-        f"  10 км:   {pr_10k_str}",
-        f"  15 км:   {pr_15k_str}",
-        f"  16 км:   {pr_16k_str}",
-        f"  21.1 км: {pr_21k_str}",
+        "",
+        "🏅 *Лучшие попытки*",
+        "  *5 км:*",
+    ]
+    lines.extend(format_efforts_block(be_5k))
+    lines += [
+        "  *10 км:*",
+    ]
+    lines.extend(format_efforts_block(be_10k))
+    lines += [
+        "  *21.1 км:*",
+    ]
+    lines.extend(format_efforts_block(be_21k))
+    lines += [
     ]
 
     return "\n".join(lines)
