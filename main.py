@@ -78,10 +78,7 @@ def build_message(activities, athlete, token):
     date_str = now.strftime(f"{weekday_ru}, %d.%m.%Y")
 
     if not runs:
-        return f"🏃 *Strava Report · {date_str}*
-
-Нет пробежек за последний год."
-
+        return f"🏃 *Strava Report · {date_str}*\n\nНет пробежек за последний год."
     # Последняя пробежка
     last_run = runs[0]
     last_dist = last_run["distance"] / 1000
