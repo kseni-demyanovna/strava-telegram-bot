@@ -229,8 +229,9 @@ def build_message(activities, athlete, token):
             return f"{h}:{m:02d}:{s:02d}"
         return f"{m}:{s:02d}"
 
-    be_5k  = get_best_efforts_all("5k", runs, token)
-    be_10k = get_best_efforts_all("10k", runs, token)
+    be_1k  = get_best_efforts_all("1K", runs, token)
+    be_5k  = get_best_efforts_all("5K", runs, token)
+    be_10k = get_best_efforts_all("10K", runs, token)
     be_21k = get_best_efforts_all("Half-Marathon", runs, token)
 
     medals = ["🥇", "🥈", "🥉"]
@@ -276,6 +277,10 @@ def build_message(activities, athlete, token):
         f"  {pace_trend_str}",
         "",
         "🏅 *Лучшие попытки*",
+        "  *1 км:*",
+    ]
+    lines.extend(format_efforts_block(be_1k))
+    lines += [
         "  *5 км:*",
     ]
     lines.extend(format_efforts_block(be_5k))
