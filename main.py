@@ -3,11 +3,13 @@ import os
 from datetime import datetime, timedelta, timezone
 
 # ===== CONFIG FROM ENV VARS =====
-CLIENT_ID = os.environ.get("STRAVA_CLIENT_ID", "243960")
-CLIENT_SECRET = os.environ.get("STRAVA_CLIENT_SECRET", "aaef164ff706dcb60a6bef981f356f95a7f3dddc")
-REFRESH_TOKEN = os.environ.get("STRAVA_REFRESH_TOKEN", "3dc6f44323fef2cb7d4a0dbfbb4ea7ca56e0030d")
+CLIENT_ID = os.environ.get("STRAVA_CLIENT_ID")
+CLIENT_SECRET = os.environ.get("STRAVA_CLIENT_SECRET")
+REFRESH_TOKEN = os.environ.get("STRAVA_REFRESH_TOKEN")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+
+REQUEST_TIMEOUT = 30  # seconds - avoid multi-hour hangs on slow/rate-limited responses
 
 def refresh_access_token():
     resp = requests.post("https://www.strava.com/oauth/token", data={
@@ -15,7 +17,8 @@ def refresh_access_token():
         "client_secret": CLIENT_SECRET,
         "refresh_token": REFRESH_TOKEN,
         "grant_type": "refresh_token"
-    })
+    }, timeout=REQUEST_TIMEOUT)
+    resp.raise_for_status()
     data = resp.json()
     return data["access_token"], data["refresh_token"]
 
@@ -28,8 +31,13 @@ def get_activities(token, weeks=52):
         resp = requests.get(
             "https://www.strava.com/api/v3/athlete/activities",
             headers=headers,
-            params={"per_page": 100, "page": page, "after": after}
+            params={"per_page": 100, "page": page, "after": after},
+            timeout=REQUEST_TIMEOUT
         )
+        if resp.status_code == 429:
+            print("Strava rate limit hit while fetching activities, stopping pagination early.")
+            break
+        resp.raise_for_status()
         batch = resp.json()
         if not batch:
             break
@@ -38,19 +46,32 @@ def get_activities(token, weeks=52):
     activities.sort(key=lambda a: a.get("start_date", ""), reverse=True)
     return activities
 
+_best_efforts_cache = {}
+
 def get_activity_best_efforts(token, activity_id):
+    if activity_id in _best_efforts_cache:
+        return _best_efforts_cache[activity_id]
     headers = {"Authorization": f"Bearer {token}"}
     resp = requests.get(
         f"https://www.strava.com/api/v3/activities/{activity_id}",
-        headers=headers
+        headers=headers,
+        timeout=REQUEST_TIMEOUT
     )
+    if resp.status_code == 429:
+        print(f"Strava rate limit hit while fetching best efforts for activity {activity_id}.")
+        _best_efforts_cache[activity_id] = []
+        return []
+    resp.raise_for_status()
     data = resp.json()
-    return data.get("best_efforts", [])
+    result = data.get("best_efforts", [])
+    _best_efforts_cache[activity_id] = result
+    return result
 
 def get_athlete(token):
     headers = {"Authorization": f"Bearer {token}"}
-    return requests.get("https://www.strava.com/api/v3/athlete", headers=headers).json()
-
+    resp = requests.get("https://www.strava.com/api/v3/athlete", headers=headers, timeout=REQUEST_TIMEOUT)
+    resp.raise_for_status()
+    return resp.json()
 def format_pace(speed_ms):
     if not speed_ms or speed_ms == 0:
         return "N/A"
@@ -301,7 +322,7 @@ def send_telegram(message):
         "chat_id": TELEGRAM_CHAT_ID,
         "text": message,
         "parse_mode": "Markdown"
-    })
+    }, timeout=REQUEST_TIMEOUT)
 
 def main():
     access_token, _ = refresh_access_token()
